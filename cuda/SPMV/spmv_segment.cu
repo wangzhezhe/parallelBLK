@@ -60,8 +60,6 @@ __global__ void scan_kernal(MatrixInfo *gmat, MatrixInfo *gvec, float gresult[],
     //printf("threadidBlock %d, vector %f\n",threadidBlock,gvec->val[matcol[threadidBlock]]);
     vecval[threadidBlock] = gvec->val[matcol[threadidBlock]];
 
-
-
     //if (threadGlobal == debugtid1 || threadGlobal == debugtid2 || matrow[threadidBlock]==debugrnum)
     //{
     //printf("gbase %d blockid %d tidblock %d, tidkernal %d , tidglobal %d,  sharadd %f, matrow %d, matcol %d matval %f, vecval %f\n",
@@ -73,9 +71,9 @@ __global__ void scan_kernal(MatrixInfo *gmat, MatrixInfo *gvec, float gresult[],
     //compute
     product = 1.0 * shareAdd[threadidBlock] * vecval[threadidBlock];
     //shareAdd[threadidBlock] = product;
-    atomicExch(&shareAdd[threadidBlock],product);
+    atomicExch(&shareAdd[threadidBlock], product);
     __syncthreads();
-    
+
     //if (threadGlobal == debugtid1 || threadGlobal == debugtid2 || matrow[threadidBlock]==debugrnum)
     //{
     //    printf("debug step1 id %d threadidBlock %f \n", threadGlobal, shareAdd[threadidBlock]);
@@ -84,7 +82,7 @@ __global__ void scan_kernal(MatrixInfo *gmat, MatrixInfo *gvec, float gresult[],
     for (span = 1; span < blockSize; span *= 2)
     {
         //add operation
-
+        //second part of the if condifiton is used to make ture the row are in same row
         if (threadidBlock >= span && matrow[threadidBlock] == matrow[threadidBlock - span])
         {
             addValue = shareAdd[threadidBlock] + shareAdd[threadidBlock - span];
@@ -130,6 +128,82 @@ __global__ void scan_kernal(MatrixInfo *gmat, MatrixInfo *gvec, float gresult[],
     //{
     //    printf("debug globalid %d gbase %d gflag label %d gflag value %d\n", threadGlobal, gbase, gbase + blockBase + blockSize - 1, gflag[gbase + blockBase + blockSize - 1]);
     //}
+}
+
+// refer to the csr version in paper
+//Efficient Sparse Matrix-Vector Multiplication on CUDA
+__global__ void
+/*
+const int num_rows, //number of rows
+const int *ptr, //ptr,indices,data represent the matrix stored by csr format
+const int *indices, 
+const float *data,
+const float *x, //x represent the vetor to take the multiplication operation
+float *y //y represent the final value after multiplication operation
+*/
+spmv_csr_vector_kernel(const int num_rows,
+                       const int *ptr,
+                       const int *indices,
+                       const float *data,
+                       const float *x,
+                       float *y)
+{
+    __shared__ float vals[];
+    // global thread index
+    // both blocknumber and blocksize determine the total threads that run in paralllel
+    int thread_id = blockDim.x * blockIdx.x + threadIdx.x; 
+    // global warp index
+    int warp_id = thread_id / 32;                          
+    // thread index within the warp
+    int lane = thread_id & (32 - 1);                      
+    
+    // one warp per row
+    int row = warp_id;
+    if (row < num_rows)
+    {
+        //start and end could make sure the start and the end data for this array
+        int row_start = ptr[row];
+        int row_end = ptr[row + 1];
+        // compute running sum per thread
+
+        vals[threadIdx.x] = 0;
+
+        //attention, the row_end could make sure 
+        //do multiplication for every element in this row
+        for (int jj = row_start + lane; jj < row_end; jj += 32){
+            //why this is not lane?   shared memroy 0-31 belong to warp1 row1 32-64 belong to warp2 row2
+            //different rows partition shared memory into different rows
+            vals[threadIdx.x] += data[jj] * x[indices[jj]];
+        }
+
+
+        // parallel reduction in shared memory
+        // one warp has 32 thread
+        // only consider first part of thread in warp
+        //every thread in a warp will do the same operation every time +1 +2 +4...
+        //every time of calculation
+        //one specific row will be calculated out
+        //it's a little bit tricky for this part of code
+        //because of the if divergency, the thread with id > 16 will not excute the following code
+        //we assuem that row number is large
+        //every iteration , the value in current warp will be added into the y[row]
+        //thread with a small id will excute multiple steps
+        //for lane16, the thread with lane > 16 will wait here, same idea for the following parts
+        //for lane = 0, every if condition will be excuted
+        if (lane < 16)
+            vals[threadIdx.x] += vals[threadIdx.x + 16];
+        if (lane < 8)
+            vals[threadIdx.x] += vals[threadIdx.x + 8];
+        if (lane < 4)
+            vals[threadIdx.x] += vals[threadIdx.x + 4];
+        if (lane < 2)
+            vals[threadIdx.x] += vals[threadIdx.x + 2];
+        if (lane < 1)
+            vals[threadIdx.x] += vals[threadIdx.x + 1];
+        // first thread writes the result
+        if (lane == 0)
+            y[row] += vals[threadIdx.x];
+    }
 }
 
 void matSwap(MatrixInfo *mat, int i, int j)
@@ -323,7 +397,6 @@ int getMulScan(MatrixInfo *mat, MatrixInfo *vec, MatrixInfo *finalres, int block
 
     clock_gettime(CLOCK_MONOTONIC_RAW, &prestart);
 
-
     //check parameters
     printf("mulScan matrix m n nz %d %d %d\n", mat->M, mat->N, mat->nz);
     printf("mulScan vector m n nz %d %d %d\n", vec->M, vec->N, vec->nz);
@@ -358,8 +431,9 @@ int getMulScan(MatrixInfo *mat, MatrixInfo *vec, MatrixInfo *finalres, int block
     for (i = 0; i < mat->nz; i++)
     {
         //printf("indexoriginal %d r %d c %d val %f\n",i, mat->rIndex[i], mat->cIndex[i], mat->val[i]);
-        if(mat->rIndex[i]<0 || mat->cIndex[i]<0){
-            printf("matrix load fail: \nindexoriginal %d r %d c %d val %f\n",i, mat->rIndex[i], mat->cIndex[i], mat->val[i]);
+        if (mat->rIndex[i] < 0 || mat->cIndex[i] < 0)
+        {
+            printf("matrix load fail: \nindexoriginal %d r %d c %d val %f\n", i, mat->rIndex[i], mat->cIndex[i], mat->val[i]);
             exit(1);
         }
     }
@@ -452,9 +526,7 @@ int getMulScan(MatrixInfo *mat, MatrixInfo *vec, MatrixInfo *finalres, int block
     printf("allocation things on gpu ok\n");
     printf("block size (%d),block number (%d)\n", blockSize, blockNum);
 
-
     clock_gettime(CLOCK_MONOTONIC_RAW, &preend);
-
 
     struct timespec start, end;
 
@@ -594,7 +666,7 @@ int getMulScan(MatrixInfo *mat, MatrixInfo *vec, MatrixInfo *finalres, int block
     //}
 
     clock_gettime(CLOCK_MONOTONIC_RAW, &end);
-    
+
     printf("Preprocess Time: %lu milli-seconds\n", 1000 * (preend.tv_sec - prestart.tv_sec) + (preend.tv_nsec - prestart.tv_nsec) / 1000000);
     printf("Kernel Time: %lu milli-seconds\n", 1000 * (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1000000);
 
