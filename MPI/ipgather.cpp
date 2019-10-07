@@ -21,43 +21,54 @@
 using namespace std;
 
 //it is also ok to return map if we need support more complex using senarios
-vector<string> split(const string &s, const string &seperator)
+//assume the separator is one char
+vector<string> split(const char *s, int size, char seperatorH, char seperatorE)
 {
     vector<string> result;
     typedef string::size_type string_size;
     string_size i = 0;
+    int flag = 0;
 
-    while (i != s.size())
+    while (i != size)
     {
-        int flag = 0;
-        while (i != s.size() && flag == 0)
+        //if flag =0 , estra str
+        //if flag =1 , real content
+        //int flag = 0;
+        while (i != size && flag == 0)
         {
-            flag = 1;
-            for (string_size x = 0; x < seperator.size(); ++x)
-                if (s[i] == seperator[x])
-                {
-                    ++i;
-                    flag = 0;
-                    break;
-                }
+            //caculate start position
+
+            if (s[i] == seperatorH)
+            {
+                flag = 1;
+                ++i;
+                break;
+            }else{
+                ++i;
+            }
         }
 
-        flag = 0;
+        //caculate end position
         string_size j = i;
-        while (j != s.size() && flag == 0)
+
+        while (j != size && flag == 1)
         {
-            for (string_size x = 0; x < seperator.size(); ++x)
-                if (s[j] == seperator[x])
-                {
-                    flag = 1;
-                    break;
-                }
-            if (flag == 0)
+
+            if (s[j] == seperatorE)
+            {
+                flag = 0;
+                break;
+            }
+
+            if (flag == 1)
                 ++j;
         }
+
         if (i != j)
         {
-            result.push_back(s.substr(i, j - i));
+            char substr[100];
+            memcpy(substr, s + i, j - i);
+            result.push_back(string(substr));
             i = j;
         }
     }
@@ -109,23 +120,28 @@ int main(int argc, char **argv)
 
     std::cout << "current rank is " << rank << " current ip is: " << ip << std::endl;
 
-    //add extra position for the comma
-
-    int sendLen = ip.length()+1;
-    
-    char*sendipStr=(char*)malloc(sizeof(char)*(sendLen));    
-    sprintf(sendipStr, "%s,", ip.data()); 
+    //attention: there number should be changed if the endpoint is not ip
+    //padding to 20 only for ip
+    //for the ip, the longest is 15 add the start label and the end label
+    int msgPaddingLen = 20;
+    int sendLen = msgPaddingLen;
+    int sendSize = sendLen * sizeof(char);
+    char *sendipStr = (char *)malloc(sendSize);
+    sprintf(sendipStr, "H%sE", ip.c_str());
 
     //std::cout << "check send ip: "<<string(sendipStr) << std::endl;
 
-    int sendSize = sendLen* sizeof(char);
-
     int rcvLen = sendLen;
-    int rcvSize = sendSize * procNum+10;
+
     char *rcvString = NULL;
 
     if (rank == 0)
     {
+        //it is possible that some ip are 2 digits and some are 3 digits
+        //add extra space to avoid message truncated error
+        //the logest ip is 15 digit plus one comma
+        //padding to the 20
+        int rcvSize = msgPaddingLen * procNum * sizeof(char);
         std::cout << "sendSize: " << sendSize << ", rcvSize:" << rcvSize << std::endl;
         rcvString = (char *)malloc(rcvSize);
         {
@@ -159,17 +175,27 @@ int main(int argc, char **argv)
     //or expose the list by the rpc
     if (rank == 0)
     {
+        printf("check retuen value: ");
+        char *temp = rcvString;
+        for (int i = 0; i < rcvLen * procNum; i++)
+        {
+            printf("%c", *temp);
+            temp++;
+        }
+        std::cout <<'\n';
         //add termination for the last position
-        rcvString[rcvLen*procNum-1]='\0';
-        printf("rcv value: %s\n",rcvString);
-        string list = string(rcvString);
-        vector<string> ipList = split (list,",");
-        
+        //rcvString[rcvLen * procNum - 1] = '\0';
+        //printf("rcv value: %s\n", rcvString);
+        //string list = string(rcvString);
+        //only fetch the first procNum ip
+        vector<string> ipList = split(rcvString, msgPaddingLen * procNum, 'H', 'E');
+
         std::cout << "check the ip list:" << std::endl;
-        for(int i=0;i<ipList.size();i++){
+        for (int i = 0; i < ipList.size(); i++)
+        {
             std::cout << ipList[i] << std::endl;
         }
-        
+
         free(rcvString);
     }
 
