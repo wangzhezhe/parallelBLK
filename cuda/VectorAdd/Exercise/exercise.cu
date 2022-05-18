@@ -14,7 +14,7 @@ __global__ void vector_add(int *a, int *b, int *c)
 
 int main()
 {
-  int *a, *b, *c;
+    int *a, *b, *c;
 	int *d_a, *d_b, *d_c;
 
 	int size = N * sizeof( int );
