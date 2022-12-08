@@ -3,6 +3,10 @@
 #include <mpi.h>
 #include <omp.h>
 
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+
 int main(int argc, char *argv[])
 {
 
@@ -24,6 +28,17 @@ int main(int argc, char *argv[])
     }
 
     printf("\n----------Processor name: %s, MPI Ranks: %d, Currnet rank %d, OpenMP Threads: %d----------\n", name, size, rank, num_threads);
+   
+    unsigned cpu, node;
+ 
+    // Get current CPU core and NUMA node via system call
+    // Note this has no glibc wrapper so we must call it directly
+    syscall(SYS_getcpu, &cpu, &node, NULL);
+ 
+    // Display information
+    printf("Rank %d is running on CPU core %u and NUMA node %u.\n\n", rank, cpu, node);
+ 
+    
     MPI_Finalize();
     return 0;
 }
