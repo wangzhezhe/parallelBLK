@@ -24,7 +24,13 @@ int main()
         std::cout << " No platforms found. Check OpenCL installation!\n";
         exit(1);
     }
-    cl::Platform default_platform = all_platforms[0];
+
+    for (int i = 0; i < all_platforms.size(); i++)
+    {
+        std::cout << "Finding platform: " << all_platforms[i].getInfo<CL_PLATFORM_NAME>() << "\n";
+    }
+
+    cl::Platform default_platform = all_platforms[1];
     std::cout << "Using platform: " << default_platform.getInfo<CL_PLATFORM_NAME>() << "\n";
 
     // get default device (CPUs, GPUs) of the default platform
@@ -37,6 +43,11 @@ int main()
         exit(1);
     }
     std::cout << "Num of detected devices is " << all_devices.size() << std::endl;
+
+    for (int i = 0; i < all_devices.size(); i++)
+    {
+        std::cout << "Finding device: " << all_devices[i].getInfo<CL_DEVICE_NAME>() << "\n";
+    }
 
     // // use device[1] because that's a GPU; device[0] is the CPU
     cl::Device default_device = all_devices[0];
@@ -57,7 +68,7 @@ int main()
         "       int ID, Nthreads, n, ratio, start, stop;"
         "       ID = get_global_id(0);"
         "       Nthreads = get_global_size(0);"
-        "       n=N[0];" 
+        "       n=N[0];"
         "       for(int index=ID; index<n; index=index+Nthreads){"
         "           C[index]=A[index]+B[index];}"
         "   }";
@@ -105,11 +116,10 @@ int main()
     // adding kernel program, adding queue, adding NUll, what does te NDRange(10) specifies the number of threads we want to run
     cl::Kernel simple_add(program, "simple_add");
 
-
-    //Attention! 
-    //There is issue to get resut
-    //if it fails to setting input parameter properly
-    //for example, setting 3 parameter but the kernel uses 4 parameters will cause error
+    // Attention!
+    // There is issue to get resut
+    // if it fails to setting input parameter properly
+    // for example, setting 3 parameter but the kernel uses 4 parameters will cause error
     simple_add.setArg(0, buffer_A);
     simple_add.setArg(1, buffer_B);
     simple_add.setArg(2, buffer_C);
@@ -127,10 +137,10 @@ int main()
     cl_int C[n];
     // read result from GPU to here
     cl_int err = queue.enqueueReadBuffer(buffer_C, CL_TRUE, 0, sizeof(cl_int) * n, C);
-    if (err!=CL_SUCCESS){
+    if (err != CL_SUCCESS)
+    {
         std::cout << "Err in enqueueReadBuffer" << std::endl;
     }
-
 
     std::cout << "result: {";
     for (int i = 0; i < n; i++)
